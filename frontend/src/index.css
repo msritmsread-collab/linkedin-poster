@@ -5,3 +5,9 @@
 body {
   font-family: 'Inter', system-ui, sans-serif;
 }
+
+/* Brand accent for active sidebar */
+.sidebar-active {
+  background-color: #FFF5F2;
+  color: #E8613F;
+}

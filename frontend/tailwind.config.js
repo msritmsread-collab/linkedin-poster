@@ -5,7 +5,18 @@ export default {
     extend: {
       fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
       colors: {
-        brand: { 50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a5f' },
+        brand: {
+          50:  '#FFF5F2',
+          100: '#FFAC9C',
+          200: '#FF9A86',
+          300: '#FF7A63',
+          400: '#F06E4E',
+          500: '#E8613F',
+          600: '#D05234',
+          700: '#B03D22',
+          800: '#9E1A00',
+          900: '#7A1400',
+        },
       },
     },
   },

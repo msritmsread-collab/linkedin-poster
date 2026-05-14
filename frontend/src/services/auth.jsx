@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import api from './api'
 
 const AuthContext = createContext(null)
@@ -6,6 +6,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const checked = useRef(false)
 
   const checkAuth = useCallback(async () => {
     const token = localStorage.getItem('token')
@@ -20,7 +21,12 @@ export function AuthProvider({ children }) {
     setLoading(false)
   }, [])
 
-  useEffect(() => { checkAuth() }, [checkAuth])
+  useEffect(() => {
+    if (!checked.current) {
+      checked.current = true
+      checkAuth()
+    }
+  }, [checkAuth])
 
   const login = async (email, password) => {
     const res = await api.post('/auth/login', { email, password })

@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../services/auth'
 
 export default function Login() {
   const { login } = useAuth()
+  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -14,6 +16,7 @@ export default function Login() {
     setLoading(true)
     try {
       await login(email, password)
+      navigate('/', { replace: true })
     } catch (err) {
       setError(err.response?.data?.detail || 'Login failed')
     }
@@ -21,15 +24,20 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-full max-w-sm bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-        <div className="text-center mb-6">
-          <h1 className="text-xl font-bold text-brand-700">MS. READ</h1>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#FFF5F2' }}>
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-8">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl mb-3" style={{ background: 'linear-gradient(135deg, #9E1A00 0%, #E8613F 100%)' }}>
+            <span className="text-white text-xl font-bold">MR</span>
+          </div>
+          <h1 className="text-xl font-bold" style={{ color: '#9E1A00' }}>MS. READ</h1>
           <p className="text-sm text-gray-500 mt-1">LinkedIn Auto-Poster</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg">{error}</div>
+            <div className="p-3 rounded-lg text-sm" style={{ background: '#FFF5F2', color: '#9E1A00', border: '1px solid #FFAC9C' }}>
+              {error}
+            </div>
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
@@ -37,7 +45,10 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 outline-none transition-colors"
+              style={{ '--tw-ring-color': '#E8613F' }}
+              onFocus={(e) => e.target.style.borderColor = '#E8613F'}
+              onBlur={(e) => e.target.style.borderColor = ''}
               required
             />
           </div>
@@ -47,14 +58,20 @@ export default function Login() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 outline-none transition-colors"
+              style={{ '--tw-ring-color': '#E8613F' }}
+              onFocus={(e) => e.target.style.borderColor = '#E8613F'}
+              onBlur={(e) => e.target.style.borderColor = ''}
               required
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-brand-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-colors"
+            className="w-full text-white py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            style={{ background: loading ? '#D05234' : '#E8613F' }}
+            onMouseEnter={(e) => !loading && (e.target.style.background = '#9E1A00')}
+            onMouseLeave={(e) => (e.target.style.background = loading ? '#D05234' : '#E8613F')}
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
