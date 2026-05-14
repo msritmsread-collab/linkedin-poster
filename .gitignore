@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.env.*
+data/*.db
+data/images/
+node_modules/
+frontend/dist/
+frontend/node_modules/
+*.log
+.DS_Store
