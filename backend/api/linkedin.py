@@ -1,8 +1,13 @@
 """
 LinkedIn API client — supports both company page (org) and personal profile posting.
 
-Org mode   : POST /rest/posts          (Marketing Developer Platform, w_organization_social)
+Org mode   : POST /rest/posts          (Marketing Developer Platform, rw_organization_admin + w_organization_social)
 Personal   : POST /v2/ugcPosts         (Share on LinkedIn product, w_member_social)
+
+Analytics:
+  Org follower count : GET /v2/networkSizes/{orgUrn}           (rw_organization_admin)
+  Org share stats    : GET /rest/organizationalEntityShareStatistics (rw_organization_admin)
+  Personal stats     : GET /rest/memberCreatorPostAnalytics      (r_member_postAnalytics)
 
 Image upload:
   Org mode : /rest/images              (versioned API)
@@ -17,7 +22,7 @@ from typing import Optional
 
 _BASE_REST  = "https://api.linkedin.com/rest"
 _BASE_V2    = "https://api.linkedin.com/v2"
-_API_VERSION = "202507"
+_API_VERSION = "202604"
 
 
 # ── Settings readers ──────────────────────────────────────────────────────────
@@ -74,6 +79,13 @@ def _person_urn() -> str:
             "click 'Test LinkedIn Connection', and save your Member ID."
         )
     return f"urn:li:member:{member_id}"
+
+
+def _share_urn(post_id: str) -> str:
+    """Wrap a numeric post ID into a full share URN if it isn't one already."""
+    if post_id.startswith("urn:"):
+        return post_id
+    return f"urn:li:share:{post_id}"
 
 
 def _author_urn() -> str:
@@ -138,6 +150,7 @@ def _upload_image_org(image_path: str) -> str:
         headers={"Authorization": f"Bearer {_get_token()}",
                  "Content-Type": _guess_content_type(image_path)},
         data=image_data,
+        timeout=60,
     ).raise_for_status()
     return image_urn
 
@@ -148,7 +161,6 @@ def _upload_image_personal(image_path: str) -> str:
     """Upload image via legacy /v2/assets API. Returns digitalmediaAsset URN."""
     person_urn = _person_urn()
 
-    # Step 1 — register upload
     reg = requests.post(
         f"{_BASE_V2}/assets?action=registerUpload",
         headers=_v2_headers(),
@@ -170,7 +182,6 @@ def _upload_image_personal(image_path: str) -> str:
                    ["uploadUrl"])
     asset_urn   = reg_data["value"]["asset"]
 
-    # Step 2 — binary upload
     with open(image_path, "rb") as f:
         image_data = f.read()
 
@@ -179,6 +190,7 @@ def _upload_image_personal(image_path: str) -> str:
         headers={"Authorization": f"Bearer {_get_token()}",
                  "Content-Type": _guess_content_type(image_path)},
         data=image_data,
+        timeout=60,
     ).raise_for_status()
 
     return asset_urn
@@ -268,6 +280,115 @@ def _post_personal(content: str, image_path: Optional[str] = None) -> str:
     return post_id
 
 
+# ── Analytics — org follower count ─────────────────────────────────────────────
+
+def fetch_follower_count() -> Optional[int]:
+    """Fetch total follower count for an org page using the networkSizes API.
+
+    Requires scope: rw_organization_admin
+    """
+    if _get_post_mode() == "personal":
+        return None  # Personal profile follower count not available via API
+    try:
+        org_urn = _org_urn()
+        resp = requests.get(
+            f"{_BASE_V2}/networkSizes/{org_urn}",
+            headers=_v2_headers(),
+            params={"edgeType": "CompanyFollowedByMember"},
+            timeout=10,
+        )
+        if not resp.ok:
+            return None
+        data = resp.json()
+        return data.get("firstDegreeSize")
+    except Exception:
+        return None
+
+
+# ── Analytics — org share statistics ──────────────────────────────────────────
+
+def fetch_org_share_stats(linkedin_post_id: str) -> Optional[dict]:
+    """Fetch impressions + engagement for an org page post.
+
+    Requires scope: rw_organization_admin
+    Uses shares=List(urn:li:share:{id}) format with LinkedIn-Version header.
+    """
+    try:
+        share_urn = _share_urn(linkedin_post_id)
+        resp = requests.get(
+            f"{_BASE_REST}/organizationalEntityShareStatistics",
+            headers=_rest_headers(),
+            params={
+                "q": "organizationalEntity",
+                "organizationalEntity": _org_urn(),
+                "shares": f"List({share_urn})",
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            return None
+        elements = resp.json().get("elements", [])
+        if not elements:
+            return None
+        stats_data = elements[0].get("totalShareStatistics", {})
+        return {
+            "impressions": stats_data.get("impressionCount", 0),
+            "likes":       stats_data.get("likeCount", 0),
+            "comments":    stats_data.get("commentCount", 0),
+            "shares":      stats_data.get("shareCount", 0),
+            "clicks":      stats_data.get("clickCount", 0),
+        }
+    except Exception:
+        return None
+
+
+# ── Analytics — personal post statistics ────────────────────────────────────────
+
+def fetch_personal_post_stats(linkedin_post_id: str) -> Optional[dict]:
+    """Fetch impressions + engagement for a personal profile post.
+
+    Uses the memberCreatorPostAnalytics endpoint (replaces deprecated memberShareStatistics).
+    Requires scope: r_member_postAnalytics (Community Management API product)
+    Makes separate queries for each metric type.
+    """
+    try:
+        share_urn = _share_urn(linkedin_post_id)
+        member_urn = _person_urn()
+        headers = _rest_headers()
+
+        stats = {"impressions": 0, "likes": 0, "comments": 0, "shares": 0, "clicks": 0}
+
+        # Map metric types to our stat keys
+        metric_map = {
+            "IMPRESSION": "impressions",
+            "REACTION":    "likes",
+            "COMMENT":     "comments",
+            "RESHARE":     "shares",
+        }
+
+        for metric_type, stat_key in metric_map.items():
+            resp = requests.get(
+                f"{_BASE_REST}/memberCreatorPostAnalytics",
+                headers=headers,
+                params={
+                    "q": "entity",
+                    "entity": share_urn,
+                    "metricType": metric_type,
+                },
+                timeout=10,
+            )
+            if not resp.ok:
+                continue
+            elements = resp.json().get("elements", [])
+            if elements:
+                count = elements[0].get("totalValue", {}).get("count", 0)
+                stats[stat_key] = count
+
+        return stats
+    except Exception:
+        return None
+
+
 # ── Public interface ──────────────────────────────────────────────────────────
 
 def post_to_linkedin(content: str, image_path: Optional[str] = None) -> str:
@@ -287,12 +408,14 @@ def upload_image(image_path: str) -> str:
 def post_to_linkedin_dryrun(content: str, image_path: Optional[str] = None) -> str:
     """Simulate a post without making any API call."""
     mode = _get_post_mode()
-    print("[LinkedIn DRY RUN] Would post:")
-    print(f"  Mode: {mode}")
+    import logging
+    logger = logging.getLogger("linkedin_poster")
+    logger.info(f"[LinkedIn DRY RUN] Would post:")
+    logger.info(f"  Mode: {mode}")
     try:
-        print(f"  Author: {_author_urn()}")
+        logger.info(f"  Author: {_author_urn()}")
     except Exception:
-        print("  Author: (not configured)")
-    print(f"  Image: {image_path}")
-    print(f"  Content ({len(content.split())} words): {content[:120]}...")
+        logger.info("  Author: (not configured)")
+    logger.info(f"  Image: {image_path}")
+    logger.info(f"  Content ({len(content.split())} words): {content[:120]}...")
     return "dry-run-id-000"

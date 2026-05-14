@@ -344,12 +344,13 @@ def upsert_post_analytics(linkedin_post_id: str, option_id: Optional[int],
         ))
 
 
-def save_follower_snapshot(total: int, organic_gain: int = 0, paid_gain: int = 0):
+def save_follower_snapshot(total: int):
+    """Save a follower count snapshot. Uses the networkSizes total follower count."""
     now = datetime.utcnow().isoformat()
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO follower_snapshots (captured_at, total, organic_gain, paid_gain) VALUES (?,?,?,?)",
-            (now, total, organic_gain, paid_gain),
+            "INSERT INTO follower_snapshots (captured_at, total, organic_gain, paid_gain) VALUES (?,?,0,0)",
+            (now, total),
         )
 
 

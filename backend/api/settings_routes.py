@@ -18,6 +18,7 @@ import requests
 
 from backend import database as db
 from backend.auth import get_current_user
+from backend.api.linkedin import _API_VERSION
 
 router = APIRouter()
 
@@ -172,7 +173,7 @@ async def test_linkedin_connection(_user: dict = Depends(get_current_user)):
                 f"https://api.linkedin.com/rest/organizations/{org_id}",
                 headers={
                     "Authorization": f"Bearer {token}",
-                    "LinkedIn-Version": "202507",
+                    "LinkedIn-Version": _API_VERSION,
                     "X-Restli-Protocol-Version": "2.0.0",
                 },
                 timeout=8,
@@ -184,7 +185,7 @@ async def test_linkedin_connection(_user: dict = Depends(get_current_user)):
             elif resp.status_code == 401:
                 return {"ok": False, "error": "Token is invalid or expired. Please re-generate it."}
             elif resp.status_code == 403:
-                return {"ok": False, "error": "Token lacks w_organization_social scope. Check your LinkedIn app permissions."}
+                return {"ok": False, "error": "Token lacks rw_organization_admin scope. Check your LinkedIn app permissions."}
             else:
                 return {"ok": False, "error": f"LinkedIn API returned {resp.status_code}: {resp.text[:200]}"}
     except Exception as e:

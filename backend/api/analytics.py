@@ -1,115 +1,65 @@
 """
 LinkedIn Page Analytics fetcher for MS. READ.
 
-Pulls from LinkedIn REST API:
-  - Follower count + growth (organizationalEntityFollowerStatistics)
-  - Per-post impressions, likes, comments, shares (organizationalEntityShareStatistics)
+Org mode:
+  - Follower count:  /v2/networkSizes/{orgUrn}?edgeType=CompanyFollowedByMember
+  - Share stats:     /rest/organizationalEntityShareStatistics (shares=List format)
 
-Requires scopes: r_organization_social_feed  (part of Marketing Developer Platform)
+Personal mode:
+  - Post stats:      /rest/memberCreatorPostAnalytics (per metric type)
+
+Org endpoints require scope: rw_organization_admin
+Personal endpoints require scope: r_member_postAnalytics
+
 Results are cached in SQLite and returned even when the API is unavailable.
 """
 
 from typing import Optional
 
-
 import requests
 from fastapi import APIRouter, Depends
 
 from backend import database as db
-from backend.api.linkedin import _get_token, _get_org_id, _get_post_mode, _get_member_id, _API_VERSION
+from backend.api.linkedin import (
+    _get_token, _get_org_id, _get_post_mode, _get_member_id,
+    _rest_headers, _API_VERSION, _org_urn, _person_urn,
+    fetch_follower_count, fetch_org_share_stats, fetch_personal_post_stats,
+)
 from backend.auth import get_current_user
 
 router = APIRouter()
 
 
-def _li_headers() -> dict:
-    return {
-        "Authorization": f"Bearer {_get_token()}",
-        "LinkedIn-Version": _API_VERSION,
-        "X-Restli-Protocol-Version": "2.0.0",
-    }
-
-
-def _org_urn() -> str:
-    return f"urn:li:organization:{_get_org_id()}"
-
-
-def _person_urn() -> str:
-    return f"urn:li:person:{_get_member_id()}"
-
-
-# ── LinkedIn API calls ────────────────────────────────────────────────────────
+# ── Internal fetch helpers (used by scheduler too) ────────────────────────────
 
 def fetch_follower_stats() -> Optional[dict]:
-    """Fetch current follower count from LinkedIn (org mode only)."""
+    """Fetch current follower count from LinkedIn.
+
+    Org mode: uses /v2/networkSizes for total follower count.
+    Personal mode: not available via API.
+    """
     if _get_post_mode() == "personal":
-        # LinkedIn API does not expose personal profile follower counts
-        return {"total": None, "note": "Follower stats not available for personal profiles."}
-    try:
-        resp = requests.get(
-            "https://api.linkedin.com/rest/organizationalEntityFollowerStatistics",
-            headers=_li_headers(),
-            params={"q": "organizationalEntity", "organizationalEntity": _org_urn()},
-            timeout=10,
-        )
-        if not resp.ok:
-            return None
-        elements = resp.json().get("elements", [])
-        if not elements:
-            return None
+        return {"total": None, "note": "Follower count not available for personal profiles."}
 
-        el = elements[0]
-        total = el.get("totalFollowerCount", 0)
-        organic = el.get("organicFollowerCount", 0)
-        paid = el.get("paidFollowerCount", 0)
-
-        db.save_follower_snapshot(total=total, organic_gain=organic, paid_gain=paid)
-        return {"total": total, "organic": organic, "paid": paid}
-    except Exception:
+    total = fetch_follower_count()
+    if total is None:
         return None
+
+    db.save_follower_snapshot(total=total)
+    return {"total": total}
 
 
 def fetch_post_stats(linkedin_post_id: str, option_id: Optional[int],
                      angle_name: str) -> Optional[dict]:
     """Fetch impressions + engagement for a single post. Mode-aware."""
-    try:
-        if _get_post_mode() == "personal":
-            # Personal profile: use memberShareStatistics
-            resp = requests.get(
-                "https://api.linkedin.com/rest/memberShareStatistics",
-                headers=_li_headers(),
-                params={"q": "member", "shares[0]": linkedin_post_id},
-                timeout=10,
-            )
-        else:
-            resp = requests.get(
-                "https://api.linkedin.com/rest/organizationalEntityShareStatistics",
-                headers=_li_headers(),
-                params={
-                    "q": "organizationalEntity",
-                    "organizationalEntity": _org_urn(),
-                    "shares[0]": linkedin_post_id,
-                },
-                timeout=10,
-            )
-        if not resp.ok:
-            return None
-        elements = resp.json().get("elements", [])
-        if not elements:
-            return None
+    if _get_post_mode() == "personal":
+        result = fetch_personal_post_stats(linkedin_post_id)
+    else:
+        result = fetch_org_share_stats(linkedin_post_id)
 
-        stats_data = elements[0].get("totalShareStatistics", {})
-        stats = {
-            "impressions": stats_data.get("impressionCount", 0),
-            "likes":       stats_data.get("likeCount", 0),
-            "comments":    stats_data.get("commentCount", 0),
-            "shares":      stats_data.get("shareCount", 0),
-            "clicks":      stats_data.get("clickCount", 0),
-        }
-        db.upsert_post_analytics(linkedin_post_id, option_id, angle_name, stats)
-        return stats
-    except Exception:
-        return None
+    if result:
+        db.upsert_post_analytics(linkedin_post_id, option_id, angle_name, result)
+    return result
 
 
 def refresh_all_post_stats():

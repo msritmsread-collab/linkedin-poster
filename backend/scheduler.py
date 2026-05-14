@@ -37,11 +37,12 @@ _DAY_MAP = {
 
 async def scheduled_analytics_refresh():
     """Auto-refresh post stats and check for engagement alerts every 6 hours."""
-    from backend.api.analytics import refresh_all_post_stats
+    from backend.api.analytics import fetch_follower_stats, refresh_all_post_stats
     from backend.api.linkedin import has_token
     if not has_token():
         return  # Skip silently — no token configured yet
     try:
+        fetch_follower_stats()  # Save a new follower snapshot
         refreshed = refresh_all_post_stats()
         alerts = db.check_engagement_alerts()
         logger.info(f"Analytics auto-refresh: {refreshed} posts updated, {alerts} new alert(s).")
